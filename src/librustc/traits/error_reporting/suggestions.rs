@@ -158,7 +158,7 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
                     }
                 }
 
-                hir::Node::Crate => return,
+                hir::Node::Crate(..) => return,
 
                 _ => {}
             }
