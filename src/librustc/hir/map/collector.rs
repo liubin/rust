@@ -202,7 +202,12 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
         crate_disambiguator: CrateDisambiguator,
         cstore: &dyn CrateStore,
         commandline_args_hash: u64,
-    ) -> (HirEntryMap<'hir>, Svh) {
+    ) -> (
+        HirEntryMap<'hir>,
+        FxHashMap<DefIndex, &'hir HirOwner<'hir>>,
+        FxHashMap<DefIndex, &'hir mut HirOwnerItems<'hir>>,
+        Svh,
+    ) {
         self.hir_body_nodes.sort_unstable_by_key(|bn| bn.0);
 
         let node_hashes = self.hir_body_nodes.iter().fold(
@@ -239,7 +244,7 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
         let crate_hash: Fingerprint = stable_hasher.finish();
 
         let svh = Svh::new(crate_hash.to_smaller_hash());
-        (self.map, svh)
+        (self.map, self.owner_map, self.owner_items_map, svh)
     }
 
     fn insert_entry(&mut self, id: HirId, entry: Entry<'hir>) {

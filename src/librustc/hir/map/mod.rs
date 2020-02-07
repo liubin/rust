@@ -5,6 +5,7 @@ pub use self::definitions::{
 
 use crate::arena::Arena;
 use crate::dep_graph::{DepGraph, DepKind, DepNode, DepNodeIndex};
+use crate::hir::{HirOwner, HirOwnerItems};
 use crate::middle::cstore::CrateStoreDyn;
 use crate::ty::query::Providers;
 use rustc_data_structures::fx::FxHashMap;
@@ -145,6 +146,9 @@ pub struct Map<'hir> {
 
     /// The SVH of the local crate.
     pub crate_hash: Svh,
+
+    pub(super) owner_map: FxHashMap<DefIndex, &'hir HirOwner<'hir>>,
+    pub(super) owner_items_map: FxHashMap<DefIndex, &'hir HirOwnerItems<'hir>>,
 
     map: HirEntryMap<'hir>,
 
@@ -1222,7 +1226,7 @@ pub fn map_crate<'hir>(
         .map(|(node_id, &hir_id)| (hir_id, node_id))
         .collect();
 
-    let (map, crate_hash) = {
+    let (map, owner_map, owner_items_map, crate_hash) = {
         let hcx = crate::ich::StableHashingContext::new(sess, krate, &definitions, cstore);
 
         let mut collector =
@@ -1234,7 +1238,16 @@ pub fn map_crate<'hir>(
         collector.finalize_and_compute_crate_hash(crate_disambiguator, cstore, cmdline_args)
     };
 
-    let map = Map { krate, dep_graph, crate_hash, map, hir_to_node_id, definitions };
+    let map = Map {
+        krate,
+        dep_graph,
+        crate_hash,
+        map,
+        owner_map,
+        owner_items_map: owner_items_map.into_iter().map(|(k, v)| (k, &*v)).collect(),
+        hir_to_node_id,
+        definitions,
+    };
 
     sess.time("validate_HIR_map", || {
         hir_id_validator::check_crate(&map);
