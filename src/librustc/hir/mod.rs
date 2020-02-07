@@ -9,9 +9,11 @@ pub mod map;
 use crate::ty::query::Providers;
 use crate::ty::TyCtxt;
 use rustc_data_structures::fx::FxHashMap;
+use rustc_hir::def_id::DefId;
 use rustc_hir::def_id::LOCAL_CRATE;
 use rustc_hir::print;
 use rustc_hir::Body;
+use rustc_hir::BodyId;
 use rustc_hir::Crate;
 use rustc_hir::HirId;
 use rustc_hir::ItemLocalId;
@@ -49,6 +51,14 @@ impl<'tcx> Hir<'tcx> {
     pub fn krate(&self) -> &'tcx Crate<'tcx> {
         self.tcx.hir_crate(LOCAL_CRATE)
     }
+
+    pub fn body(&self, id: BodyId) -> &'tcx Body<'tcx> {
+        self.tcx
+            .hir_owner_items(DefId::local(id.hir_id.owner))
+            .bodies
+            .get(&id.hir_id.local_id)
+            .unwrap()
+    }
 }
 
 impl<'tcx> Deref for Hir<'tcx> {
@@ -75,5 +85,13 @@ impl<'tcx> TyCtxt<'tcx> {
 
 pub fn provide(providers: &mut Providers<'_>) {
     providers.hir_crate = |tcx, _| tcx.hir_map.untracked_krate();
+    providers.hir_owner = |tcx, id| {
+        assert_eq!(id.krate, LOCAL_CRATE);
+        *tcx.hir_map.owner_map.get(&id.index).unwrap()
+    };
+    providers.hir_owner_items = |tcx, id| {
+        assert_eq!(id.krate, LOCAL_CRATE);
+        *tcx.hir_map.owner_items_map.get(&id.index).unwrap()
+    };
     map::provide(providers);
 }
