@@ -1,5 +1,6 @@
 use crate::dep_graph::{self, DepNode};
 use crate::hir::exports::Export;
+use crate::hir::map;
 use crate::hir::{HirOwner, HirOwnerItems};
 use crate::infer::canonical::{self, Canonical};
 use crate::lint::LintLevelMap;
