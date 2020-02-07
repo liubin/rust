@@ -4,7 +4,6 @@
 //! There are also some rather random cases (like const initializer
 //! expressions) that are mostly just leftovers.
 
-use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_data_structures::stable_hasher::StableHasher;
 use rustc_hir as hir;
@@ -17,9 +16,10 @@ use rustc_span::Span;
 use syntax::ast;
 use syntax::node_id::NodeMap;
 
-use std::borrow::Borrow;
 use std::fmt::Write;
 use std::hash::Hash;
+
+pub use rustc_hir::def_id::DefPathHash;
 
 /// The `DefPathTable` maps `DefIndex`es to `DefKey`s and vice versa.
 /// Internally the `DefPathTable` holds a tree of `DefKey`s, where each `DefKey`
@@ -280,28 +280,6 @@ pub enum DefPathData {
     AnonConst,
     /// An `impl Trait` type node.
     ImplTrait,
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Hash,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    RustcEncodable,
-    RustcDecodable,
-    HashStable
-)]
-pub struct DefPathHash(pub Fingerprint);
-
-impl Borrow<Fingerprint> for DefPathHash {
-    #[inline]
-    fn borrow(&self) -> &Fingerprint {
-        &self.0
-    }
 }
 
 impl Definitions {

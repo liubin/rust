@@ -197,19 +197,6 @@ impl<'a> StableHashingContextProvider<'a> for StableHashingContext<'a> {
 
 impl<'a> crate::dep_graph::DepGraphSafe for StableHashingContext<'a> {}
 
-impl<'a> ToStableHashKey<StableHashingContext<'a>> for hir::HirId {
-    type KeyType = (DefPathHash, hir::ItemLocalId);
-
-    #[inline]
-    fn to_stable_hash_key(
-        &self,
-        hcx: &StableHashingContext<'a>,
-    ) -> (DefPathHash, hir::ItemLocalId) {
-        let def_path_hash = hcx.local_def_path_hash(self.owner);
-        (def_path_hash, self.local_id)
-    }
-}
-
 impl<'a> HashStable<StableHashingContext<'a>> for ast::NodeId {
     fn hash_stable(&self, hcx: &mut StableHashingContext<'a>, hasher: &mut StableHasher) {
         match hcx.node_id_hashing_mode {

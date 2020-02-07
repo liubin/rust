@@ -1,6 +1,9 @@
+use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::AtomicRef;
 use rustc_index::vec::Idx;
+use rustc_macros::HashStable_Generic;
 use rustc_serialize::{Decoder, Encoder};
+use std::borrow::Borrow;
 use std::fmt;
 use std::{u32, u64};
 
@@ -97,6 +100,28 @@ impl rustc_serialize::UseSpecializedEncodable for CrateNum {
 impl rustc_serialize::UseSpecializedDecodable for CrateNum {
     fn default_decode<D: Decoder>(d: &mut D) -> Result<CrateNum, D::Error> {
         Ok(CrateNum::from_u32(d.read_u32()?))
+    }
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Hash,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    RustcEncodable,
+    RustcDecodable,
+    HashStable_Generic
+)]
+pub struct DefPathHash(pub Fingerprint);
+
+impl Borrow<Fingerprint> for DefPathHash {
+    #[inline]
+    fn borrow(&self) -> &Fingerprint {
+        &self.0
     }
 }
 
