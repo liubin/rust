@@ -433,11 +433,11 @@ impl<'hir> Map<'hir> {
     }
 
     pub fn body(&self, id: BodyId) -> &'hir Body<'hir> {
-        self.read(id.hir_id);
-
-        // N.B., intentionally bypass `self.krate()` so that we
-        // do not trigger a read of the whole krate here
-        self.krate.body(id)
+        self.tcx
+            .hir_owner_items(DefId::local(id.hir_id.owner))
+            .bodies
+            .get(&id.hir_id.local_id)
+            .unwrap()
     }
 
     pub fn fn_decl_by_hir_id(&self, hir_id: HirId) -> Option<&'hir FnDecl<'hir>> {

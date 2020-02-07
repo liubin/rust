@@ -10,11 +10,9 @@ use crate::ty::query::Providers;
 use crate::ty::TyCtxt;
 use rustc_data_structures::cold_path;
 use rustc_data_structures::fx::FxHashMap;
-use rustc_hir::def_id::DefId;
 use rustc_hir::def_id::LOCAL_CRATE;
 use rustc_hir::print;
 use rustc_hir::Body;
-use rustc_hir::BodyId;
 use rustc_hir::Crate;
 use rustc_hir::HirId;
 use rustc_hir::ItemLocalId;
@@ -51,14 +49,6 @@ pub struct Hir<'tcx> {
 impl<'tcx> Hir<'tcx> {
     pub fn krate(&self) -> &'tcx Crate<'tcx> {
         self.tcx.hir_crate(LOCAL_CRATE)
-    }
-
-    pub fn body(&self, id: BodyId) -> &'tcx Body<'tcx> {
-        self.tcx
-            .hir_owner_items(DefId::local(id.hir_id.owner))
-            .bodies
-            .get(&id.hir_id.local_id)
-            .unwrap()
     }
 }
 
