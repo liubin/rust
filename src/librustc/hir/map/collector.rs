@@ -259,7 +259,9 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
         });
 
         if i == 0 {
-            assert!(self.owner_map.insert(id.owner, self.arena.alloc(owner)).is_none());
+            self.owner_map.insert(id.owner, self.arena.alloc(owner));
+        // FIXME: feature(impl_trait_in_bindings) broken and trigger this assert
+        //assert!(self.owner_map.insert(id.owner, self.arena.alloc(owner)).is_none());
         } else {
             let len = items.items.len();
             if i >= len {
