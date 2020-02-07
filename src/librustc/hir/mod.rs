@@ -25,7 +25,7 @@ pub struct HirOwner<'tcx> {
     node: Node<'tcx>,
 }
 
-#[derive(HashStable)]
+#[derive(HashStable, Clone)]
 pub struct HirItem<'tcx> {
     parent: ItemLocalId,
     node: Node<'tcx>,
@@ -33,7 +33,7 @@ pub struct HirItem<'tcx> {
 
 #[derive(HashStable)]
 pub struct HirOwnerItems<'tcx> {
-    owner: &'tcx HirOwner<'tcx>,
+    //owner: &'tcx HirOwner<'tcx>,
     items: IndexVec<ItemLocalId, Option<HirItem<'tcx>>>,
     bodies: FxHashMap<ItemLocalId, &'tcx Body<'tcx>>,
 }

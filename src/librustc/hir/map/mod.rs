@@ -3,6 +3,7 @@ pub use self::definitions::{
     DefKey, DefPath, DefPathData, DefPathHash, Definitions, DisambiguatedDefPathData,
 };
 
+use crate::arena::Arena;
 use crate::dep_graph::{DepGraph, DepKind, DepNode, DepNodeIndex};
 use crate::middle::cstore::CrateStoreDyn;
 use crate::ty::query::Providers;
@@ -1206,6 +1207,7 @@ impl Named for ImplItem<'_> {
 
 pub fn map_crate<'hir>(
     sess: &rustc_session::Session,
+    arena: &'hir Arena<'hir>,
     cstore: &CrateStoreDyn,
     krate: &'hir Crate<'hir>,
     dep_graph: DepGraph,
@@ -1224,7 +1226,7 @@ pub fn map_crate<'hir>(
         let hcx = crate::ich::StableHashingContext::new(sess, krate, &definitions, cstore);
 
         let mut collector =
-            NodeCollector::root(sess, krate, &dep_graph, &definitions, &hir_to_node_id, hcx);
+            NodeCollector::root(sess, arena, krate, &dep_graph, &definitions, &hir_to_node_id, hcx);
         intravisit::walk_crate(&mut collector, krate);
 
         let crate_disambiguator = sess.local_crate_disambiguator();
