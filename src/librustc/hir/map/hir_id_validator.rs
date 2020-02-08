@@ -7,7 +7,7 @@ use rustc_hir::intravisit;
 use rustc_hir::itemlikevisit::ItemLikeVisitor;
 use rustc_hir::{HirId, ItemLocalId};*/
 
-pub fn check_crate(hir_map: &EarlyMap<'_>) {
+pub fn check_crate(_: &EarlyMap<'_>) {
     /*hir_map.dep_graph.assert_ignored();
 
     let errors = Lock::new(Vec::new());
