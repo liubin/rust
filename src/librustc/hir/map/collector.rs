@@ -1,6 +1,7 @@
-use crate::dep_graph::{DepGraph, DepKind, DepNode, DepNodeIndex};
+use crate::arena::Arena;
 use crate::hir::map::definitions::{self, DefPathHash};
-use crate::hir::map::{Entry, HirEntryMap, Map};
+use crate::hir::map::{Entry, Map};
+use crate::hir::{HirItem, HirOwner, HirOwnerItems};
 use crate::ich::StableHashingContext;
 use crate::middle::cstore::CrateStore;
 use rustc_data_structures::fingerprint::Fingerprint;
@@ -22,76 +23,49 @@ use std::iter::repeat;
 
 /// A visitor that walks over the HIR and collects `Node`s into a HIR map.
 pub(super) struct NodeCollector<'a, 'hir> {
+    arena: &'hir Arena<'hir>,
+
     /// The crate
     krate: &'hir Crate<'hir>,
 
     /// Source map
     source_map: &'a SourceMap,
 
-    /// The node map
-    map: HirEntryMap<'hir>,
+    owner_map: FxHashMap<DefIndex, &'hir HirOwner<'hir>>,
+    owner_items_map: FxHashMap<DefIndex, &'hir mut HirOwnerItems<'hir>>,
+
     /// The parent of this node
     parent_node: hir::HirId,
 
-    // These fields keep track of the currently relevant DepNodes during
-    // the visitor's traversal.
     current_dep_node_owner: DefIndex,
-    current_signature_dep_index: DepNodeIndex,
-    current_full_dep_index: DepNodeIndex,
-    currently_in_body: bool,
 
-    dep_graph: &'a DepGraph,
     definitions: &'a definitions::Definitions,
     hir_to_node_id: &'a FxHashMap<HirId, NodeId>,
 
     hcx: StableHashingContext<'a>,
 
-    // We are collecting `DepNode::HirBody` hashes here so we can compute the
-    // crate hash from then later on.
+    // We are collecting HIR hashes here so we can compute the
+    // crate hash from them later on.
     hir_body_nodes: Vec<(DefPathHash, Fingerprint)>,
 }
 
-fn input_dep_node_and_hash(
-    dep_graph: &DepGraph,
+fn hash(
     hcx: &mut StableHashingContext<'_>,
-    dep_node: DepNode,
     input: impl for<'a> HashStable<StableHashingContext<'a>>,
-) -> (DepNodeIndex, Fingerprint) {
-    let dep_node_index = dep_graph.input_task(dep_node, &mut *hcx, &input).1;
-
-    let hash = if dep_graph.is_fully_enabled() {
-        dep_graph.fingerprint_of(dep_node_index)
-    } else {
-        let mut stable_hasher = StableHasher::new();
-        input.hash_stable(hcx, &mut stable_hasher);
-        stable_hasher.finish()
-    };
-
-    (dep_node_index, hash)
+) -> Fingerprint {
+    let mut stable_hasher = StableHasher::new();
+    input.hash_stable(hcx, &mut stable_hasher);
+    stable_hasher.finish()
 }
 
-fn alloc_hir_dep_nodes(
-    dep_graph: &DepGraph,
+fn hash_body(
     hcx: &mut StableHashingContext<'_>,
     def_path_hash: DefPathHash,
     item_like: impl for<'a> HashStable<StableHashingContext<'a>>,
     hir_body_nodes: &mut Vec<(DefPathHash, Fingerprint)>,
-) -> (DepNodeIndex, DepNodeIndex) {
-    let sig = dep_graph
-        .input_task(
-            def_path_hash.to_dep_node(DepKind::Hir),
-            &mut *hcx,
-            HirItemLike { item_like: &item_like, hash_bodies: false },
-        )
-        .1;
-    let (full, hash) = input_dep_node_and_hash(
-        dep_graph,
-        hcx,
-        def_path_hash.to_dep_node(DepKind::HirBody),
-        HirItemLike { item_like: &item_like, hash_bodies: true },
-    );
+) {
+    let hash = hash(hcx, HirItemLike { item_like: &item_like });
     hir_body_nodes.push((def_path_hash, hash));
-    (sig, full)
 }
 
 fn upstream_crates(cstore: &dyn CrateStore) -> Vec<(Symbol, Fingerprint, Svh)> {
@@ -112,8 +86,8 @@ fn upstream_crates(cstore: &dyn CrateStore) -> Vec<(Symbol, Fingerprint, Svh)> {
 impl<'a, 'hir> NodeCollector<'a, 'hir> {
     pub(super) fn root(
         sess: &'a Session,
+        arena: &'hir Arena<'hir>,
         krate: &'hir Crate<'hir>,
-        dep_graph: &'a DepGraph,
         definitions: &'a definitions::Definitions,
         hir_to_node_id: &'a FxHashMap<HirId, NodeId>,
         mut hcx: StableHashingContext<'a>,
@@ -122,14 +96,9 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
 
         let mut hir_body_nodes = Vec::new();
 
-        // Allocate `DepNode`s for the root module.
-        let (root_mod_sig_dep_index, root_mod_full_dep_index) = {
+        {
             let Crate {
-                ref module,
-                // Crate attributes are not copied over to the root `Mod`, so hash
-                // them explicitly here.
-                ref attrs,
-                span,
+                ref item,
                 // These fields are handled separately:
                 exported_macros: _,
                 non_exported_macro_attrs: _,
@@ -142,45 +111,31 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
                 modules: _,
             } = *krate;
 
-            alloc_hir_dep_nodes(
-                dep_graph,
-                &mut hcx,
-                root_mod_def_path_hash,
-                (module, attrs, span),
-                &mut hir_body_nodes,
-            )
+            hash_body(&mut hcx, root_mod_def_path_hash, item, &mut hir_body_nodes)
         };
 
-        {
-            dep_graph.input_task(
-                DepNode::new_no_params(DepKind::AllLocalTraitImpls),
-                &mut hcx,
-                &krate.trait_impls,
-            );
-        }
-
         let mut collector = NodeCollector {
+            arena,
             krate,
             source_map: sess.source_map(),
-            map: IndexVec::from_elem_n(IndexVec::new(), definitions.def_index_count()),
             parent_node: hir::CRATE_HIR_ID,
-            current_signature_dep_index: root_mod_sig_dep_index,
-            current_full_dep_index: root_mod_full_dep_index,
             current_dep_node_owner: CRATE_DEF_INDEX,
-            currently_in_body: false,
-            dep_graph,
             definitions,
             hir_to_node_id,
             hcx,
             hir_body_nodes,
+            owner_map: FxHashMap::with_capacity_and_hasher(
+                definitions.def_index_count(),
+                Default::default(),
+            ),
+            owner_items_map: FxHashMap::with_capacity_and_hasher(
+                definitions.def_index_count(),
+                Default::default(),
+            ),
         };
         collector.insert_entry(
             hir::CRATE_HIR_ID,
-            Entry {
-                parent: hir::CRATE_HIR_ID,
-                dep_node: root_mod_sig_dep_index,
-                node: Node::Crate,
-            },
+            Entry { parent: hir::CRATE_HIR_ID, node: Node::Crate(&krate.item) },
         );
 
         collector
@@ -191,7 +146,17 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
         crate_disambiguator: CrateDisambiguator,
         cstore: &dyn CrateStore,
         commandline_args_hash: u64,
-    ) -> (HirEntryMap<'hir>, Svh) {
+    ) -> (
+        FxHashMap<DefIndex, &'hir HirOwner<'hir>>,
+        FxHashMap<DefIndex, &'hir mut HirOwnerItems<'hir>>,
+        Svh,
+    ) {
+        // Insert bodies into the map
+        for (id, body) in self.krate.bodies.iter() {
+            let bodies = &mut self.owner_items_map.get_mut(&id.hir_id.owner).unwrap().bodies;
+            assert!(bodies.insert(id.hir_id.local_id, body).is_none());
+        }
+
         self.hir_body_nodes.sort_unstable_by_key(|bn| bn.0);
 
         let node_hashes = self.hir_body_nodes.iter().fold(
@@ -228,30 +193,37 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
         let crate_hash: Fingerprint = stable_hasher.finish();
 
         let svh = Svh::new(crate_hash.to_smaller_hash());
-        (self.map, svh)
+        (self.owner_map, self.owner_items_map, svh)
     }
 
     fn insert_entry(&mut self, id: HirId, entry: Entry<'hir>) {
-        debug!("hir_map: {:?} => {:?}", id, entry);
-        let local_map = &mut self.map[id.owner];
         let i = id.local_id.as_u32() as usize;
-        let len = local_map.len();
-        if i >= len {
-            local_map.extend(repeat(None).take(i - len + 1));
+
+        let owner = HirOwner { parent: entry.parent, node: entry.node };
+
+        let arena = self.arena;
+
+        let items = self.owner_items_map.entry(id.owner).or_insert_with(|| {
+            arena.alloc(HirOwnerItems { items: IndexVec::new(), bodies: FxHashMap::default() })
+        });
+
+        if i == 0 {
+            self.owner_map.insert(id.owner, self.arena.alloc(owner));
+        // FIXME: feature(impl_trait_in_bindings) broken and trigger this assert
+        //assert!(self.owner_map.insert(id.owner, self.arena.alloc(owner)).is_none());
+        } else {
+            let len = items.items.len();
+            if i >= len {
+                items.items.extend(repeat(None).take(i - len + 1));
+            }
+            assert_eq!(entry.parent.owner, id.owner);
+            items.items[id.local_id] =
+                Some(HirItem { parent: entry.parent.local_id, node: entry.node });
         }
-        local_map[id.local_id] = Some(entry);
     }
 
     fn insert(&mut self, span: Span, hir_id: HirId, node: Node<'hir>) {
-        let entry = Entry {
-            parent: self.parent_node,
-            dep_node: if self.currently_in_body {
-                self.current_full_dep_index
-            } else {
-                self.current_signature_dep_index
-            },
-            node,
-        };
+        let entry = Entry { parent: self.parent_node, node };
 
         // Make sure that the DepNode of some node coincides with the HirId
         // owner of that node.
@@ -306,29 +278,14 @@ impl<'a, 'hir> NodeCollector<'a, 'hir> {
         f: F,
     ) {
         let prev_owner = self.current_dep_node_owner;
-        let prev_signature_dep_index = self.current_signature_dep_index;
-        let prev_full_dep_index = self.current_full_dep_index;
-        let prev_in_body = self.currently_in_body;
 
         let def_path_hash = self.definitions.def_path_hash(dep_node_owner);
 
-        let (signature_dep_index, full_dep_index) = alloc_hir_dep_nodes(
-            self.dep_graph,
-            &mut self.hcx,
-            def_path_hash,
-            item_like,
-            &mut self.hir_body_nodes,
-        );
-        self.current_signature_dep_index = signature_dep_index;
-        self.current_full_dep_index = full_dep_index;
+        hash_body(&mut self.hcx, def_path_hash, item_like, &mut self.hir_body_nodes);
 
         self.current_dep_node_owner = dep_node_owner;
-        self.currently_in_body = false;
         f(self);
-        self.currently_in_body = prev_in_body;
         self.current_dep_node_owner = prev_owner;
-        self.current_full_dep_index = prev_full_dep_index;
-        self.current_signature_dep_index = prev_signature_dep_index;
     }
 }
 
@@ -357,10 +314,7 @@ impl<'a, 'hir> Visitor<'hir> for NodeCollector<'a, 'hir> {
     }
 
     fn visit_nested_body(&mut self, id: BodyId) {
-        let prev_in_body = self.currently_in_body;
-        self.currently_in_body = true;
         self.visit_body(self.krate.body(id));
-        self.currently_in_body = prev_in_body;
     }
 
     fn visit_param(&mut self, param: &'hir Param<'hir>) {
@@ -583,11 +537,8 @@ impl<'a, 'hir> Visitor<'hir> for NodeCollector<'a, 'hir> {
     }
 }
 
-// This is a wrapper structure that allows determining if span values within
-// the wrapped item should be hashed or not.
 struct HirItemLike<T> {
     item_like: T,
-    hash_bodies: bool,
 }
 
 impl<'hir, T> HashStable<StableHashingContext<'hir>> for HirItemLike<T>
@@ -595,7 +546,7 @@ where
     T: HashStable<StableHashingContext<'hir>>,
 {
     fn hash_stable(&self, hcx: &mut StableHashingContext<'hir>, hasher: &mut StableHasher) {
-        hcx.while_hashing_hir_bodies(self.hash_bodies, |hcx| {
+        hcx.while_hashing_hir_bodies(true, |hcx| {
             self.item_like.hash_stable(hcx, hasher);
         });
     }

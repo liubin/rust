@@ -1,5 +1,7 @@
 use crate::dep_graph::{self, DepNode};
 use crate::hir::exports::Export;
+use crate::hir::map;
+use crate::hir::{HirOwner, HirOwnerItems};
 use crate::infer::canonical::{self, Canonical};
 use crate::lint::LintLevelMap;
 use crate::middle::codegen_fn_attrs::CodegenFnAttrs;
@@ -54,6 +56,7 @@ use rustc_span::symbol::Symbol;
 use rustc_span::{Span, DUMMY_SP};
 use std::any::type_name;
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use syntax::ast;

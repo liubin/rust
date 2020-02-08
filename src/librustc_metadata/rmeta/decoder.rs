@@ -3,7 +3,7 @@
 use crate::rmeta::table::{FixedSizeEncoding, Table};
 use crate::rmeta::*;
 
-use rustc::dep_graph::{self, DepNodeIndex};
+use rustc::dep_graph::{self, DepNode, DepNodeIndex};
 use rustc::hir::exports::Export;
 use rustc::hir::map::definitions::DefPathTable;
 use rustc::hir::map::{DefKey, DefPath, DefPathData, DefPathHash};
@@ -1536,7 +1536,8 @@ impl<'a, 'tcx> CrateMetadata {
             // would always write the same value.
 
             let def_path_hash = self.def_path_hash(CRATE_DEF_INDEX);
-            let dep_node = def_path_hash.to_dep_node(dep_graph::DepKind::CrateMetadata);
+            let dep_node =
+                DepNode::from_def_path_hash(def_path_hash, dep_graph::DepKind::CrateMetadata);
 
             dep_node_index = tcx.dep_graph.dep_node_index_of(&dep_node);
             assert!(dep_node_index != DepNodeIndex::INVALID);
